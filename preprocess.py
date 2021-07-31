@@ -3,6 +3,7 @@ from gwpy.plot import Plot
 import numpy as np
 from scipy import signal
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
 from PIL import Image
 from matplotlib import pyplot as plt
 
@@ -10,7 +11,11 @@ import threading
 
 from tqdm import tqdm
 
+import os
+
 import pandas as pd
+
+from pathlib import Path
 
 Q_RANGE = (16,32)
 F_RANGE = (35,350)
@@ -69,16 +74,16 @@ def create_image(fname):
     for i in range(3):
         img[:, :, i] = 255 * scaler.fit_transform(q_transforms[i])
 
-    return Image.fromarray(img).rotate(90, expand=1)
+    return Image.fromarray(img).rotate(90, expand=1).resize((768, 768))
 
 
-# class AsynPreprocess(threading.Thread):
+# class AsyncPreprocess(threading.Thread):
 #
 #     def __init__(self, data):
 #         self.data = data
 #
 #     def run(self):
-#
+
 
 
 if __name__=="__main__":
@@ -92,8 +97,47 @@ if __name__=="__main__":
 
     arr = train_labels.to_numpy()
 
-    print(len(train_labels))
-    for index in tqdm(range(1000)):
-        img = create_image(arr[index][2])
+    print(len(arr))
 
-        img.save("./data/train/{}/{}.jpg".format(arr[index][1], arr[index][0]))
+    t_arr = np.transpose(arr[0:100])
+
+    id_train, id_val, target_train, target_val, path_train, path_val = \
+        train_test_split(*t_arr, test_size=0.1, train_size=0.9)
+
+    print(len(id_train), len(id_val))
+
+    os.system("mkdir -p ./data")
+
+    os.system("rm -r ./data/*")
+
+    os.system("mkdir -p ./data/test")
+    os.system("mkdir -p ./data/train/0")
+    os.system("mkdir -p ./data/validation/0")
+    os.system("mkdir -p ./data/train/1")
+    os.system("mkdir -p ./data/validation/1")
+
+    test_paths = list(Path("./g2net-gravitational-wave-detection/test").rglob("*.npy"))
+
+    # Save training lists for easy access
+
+    np.save("./data/train_info.npy", np.array([id_train, target_train]).transpose())
+
+    # Save validation lists for easy access
+    np.save("./data/validation_info.npy", np.array([id_val, target_val]).transpose())
+
+    # Train Images
+    for index in tqdm(range(len(id_train))):
+        img = create_image(path_train[index])
+
+        img.save("./data/train/{}/{}.jpg".format(target_train[index], id_train[index]))
+
+    # Validation Images
+    for index in tqdm(range(len(id_val))):
+        img = create_image(path_val[index])
+
+        img.save("./data/validation/{}/{}.jpg".format(target_val[index], id_val[index]))
+
+    # for test_path in tqdm(test_paths):
+    #     img = create_image(str(test_path))
+    #
+    #     img.save("./data/test/{}.jpg".format(test_path.name.split(".")[0]))
