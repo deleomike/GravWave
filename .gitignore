@@ -6,3 +6,6 @@ data/
 g2net-gravitational-wave-detection/
 lightning_logs/*
 
+# Ignore File Types
+*.zip
+
