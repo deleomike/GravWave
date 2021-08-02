@@ -1,42 +1,111 @@
+import torch
+import timm
+
 import numpy as np
-import pandas as pd
+import PIL.Image as Image
+import torch.nn.functional as F
 
-import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader, Dataset
+from src.util.sam import SAM
+from pytorch_lightning import LightningModule, Trainer
 
-import pycbc.types.timeseries as TimeSeries
+bs = 2
 
-TimeSeries.TimeSeries()
 
-import seaborn as sns
-sns.set()
-plt.rcParams["axes.grid"] = False
+class GravWaveDataset(Dataset):
 
-import matplotlib.mlab as mlab
-from scipy import signal
-from scipy.interpolate import interp1d
-from scipy.signal import butter, filtfilt, iirdesign, zpk2tf, freqz
+    def __init__(self, data, data_dir):
+        self.data = data
+        self.data_dir = data_dir
 
-from IPython.display import HTML
+        self.images = [np.array(Image.open("{}/{}/{}.jpg".format(data_dir, target, id_))).transpose((2, 0, 1))
+                       for id_, target in data]
 
-from gwpy.timeseries import TimeSeries
-from gwpy.table import Table
+    def __len__(self):
+        return len(self.data)
 
-from tqdm.notebook import tqdm
+    def __getitem__(self, index):
+        img = self.images[index].astype(np.float32) / 255
 
-train_labels = pd.read_csv("./g2net-gravitational-wave-detection/training_labels_with_paths.csv")
-train_labels.target.value_counts()
+        img = torch.tensor(img)
 
-def correct(row):
-    return row["filepath"].replace("/kaggle/input", ".")
+        # print(img.shape)
 
-train_labels["filepath"] = train_labels.apply(correct, axis=1)
+        return img, torch.tensor(self.data[index][1], dtype=torch.float32)
 
-example = 1
+data_dir = "./data"
 
-example_strain = np.load(train_labels[train_labels.target==1].iloc[example].filepath)
+train_data = np.load("./data/train_info.npy", allow_pickle=True)
+val_data = np.load("./data/validation_info.npy", allow_pickle=True)
 
-white = TimeSeries(abs(example_strain[0,:]) + 1)
+train_ds = GravWaveDataset(train_data, "./data/train")
+val_ds = GravWaveDataset(val_data, "./data/validation")
 
-white.asd()
+train_dl = DataLoader(train_ds, shuffle=True, batch_size=bs)
+val_dl = DataLoader(val_ds, batch_size=bs)
 
-hp = white.hi
+
+class GravModel(LightningModule):
+
+    def __init__(self, useSAM=True):
+        super().__init__()
+        self.model = timm.create_model('tf_efficientnet_l2_ns_475', pretrained=True, num_classes=1)
+
+        self.useSAM = useSAM
+
+        if self.useSAM:
+            self.automatic_optimization = False
+
+    def configure_optimizers(self):
+        if self.useSAM:
+            base_optimizer = torch.optim.SGD
+            optimizer = SAM(self.parameters(), base_optimizer, lr=0.1)
+        else:
+            optimizer = torch.optim.SGD(self.parameters(), lr=0.1)
+        #         optimizer = torch.optim.Adam(self.model.parameters(), lr=0.1)
+        return optimizer
+
+    def forward(self, x):
+        return torch.sigmoid(self.model(x))
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+
+        if self.useSAM:
+            optimizer = self.optimizers()
+
+            optimizer.zero_grad()
+            # first forward-backward pass
+            loss_1 = self.compute_loss(x, y)
+            self.manual_backward(loss_1)
+            optimizer.first_step(zero_grad=True)
+
+            # second forward-backward pass
+            loss_2 = self.compute_loss(x, y)
+            self.manual_backward(loss_2)
+            optimizer.second_step(zero_grad=True)
+
+            return loss_1
+
+        else:
+
+            loss = self.compute_loss(x, y)
+
+    def validation_step(self, batch, batch_idx):
+        # print(batch)
+        x, y = batch
+
+        with torch.no_grad():
+            loss = self.compute_loss(x, y)
+
+        return loss
+
+    def compute_loss(self, x, y):
+        logits = self.forward(x)
+        return F.mse_loss(logits, y)
+
+module = GravModel()
+
+trainer = Trainer(fast_dev_run=True, num_sanity_val_steps=1)
+
+trainer.fit(module, train_dl, val_dl)

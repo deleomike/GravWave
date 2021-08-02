@@ -17,9 +17,9 @@ import pandas as pd
 
 from pathlib import Path
 
-Q_RANGE = (16,32)
-F_RANGE = (35,350)
-SAMPLE_RATE=2048
+Q_RANGE = (16, 32)
+F_RANGE = (35, 350)
+SAMPLE_RATE = 2048
 
 
 def read_file(fname):
@@ -53,10 +53,6 @@ def preprocess(d1, d2, d3, bandpass=False, lf=35, hf=350, crop=True):
         return bp_d1, bp_d2, bp_d3
     else:  # only whiten
         return white_d1, white_d2, white_d3
-
-
-Q_RANGE = (16, 32)
-F_RANGE = (35, 350)
 
 
 def create_image(fname):
@@ -99,7 +95,7 @@ if __name__=="__main__":
 
     print(len(arr))
 
-    t_arr = np.transpose(arr[0:100])
+    t_arr = np.transpose(arr)
 
     id_train, id_val, target_train, target_val, path_train, path_val = \
         train_test_split(*t_arr, test_size=0.1, train_size=0.9)
