@@ -4,7 +4,7 @@ __pycache__/
 .idea/
 data/
 g2net-gravitational-wave-detection/
-lightning_logs/*
+lightning_logs
 
 # Ignore File Types
 *.zip

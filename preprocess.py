@@ -5,6 +5,10 @@ from scipy import signal
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 from PIL import Image
+from concurrent.futures import ThreadPoolExecutor
+import time
+
+from tqdm_multi_thread import TqdmMultiThreadFactory
 from matplotlib import pyplot as plt
 
 import threading
@@ -121,11 +125,27 @@ if __name__=="__main__":
     # Save validation lists for easy access
     np.save("./data/validation_info.npy", np.array([id_val, target_val]).transpose())
 
-    # Train Images
-    for index in tqdm(range(len(id_train))):
-        img = create_image(path_train[index])
 
-        img.save("./data/train/{}/{}.jpg".format(target_train[index], id_train[index]))
+    def demo(factory, position, data):
+        with factory.create(position, len(data)) as progress:
+            for _ in range(0, len(data)):
+                progress.update(1)
+                img = create_image(data[index][0])
+
+                img.save("./data/train/{}/{}.jpg".format(data[index][1], data[index][2]))
+
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        tasks = range(20)
+        multi_thread_factory = TqdmMultiThreadFactory()
+        for i, url in enumerate(tasks, 1):
+            executor.submit(demo, multi_thread_factory,
+                            i, np.array([path_train, target_train, id_train]).transpose())
+
+    # Train Images
+    # for index in tqdm(range(len(id_train))):
+    #     img = create_image(path_train[index])
+    #
+    #     img.save("./data/train/{}/{}.jpg".format(target_train[index], id_train[index]))
 
     # Validation Images
     for index in tqdm(range(len(id_val))):
