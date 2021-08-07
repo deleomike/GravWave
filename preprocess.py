@@ -5,6 +5,7 @@ from scipy import signal
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 from PIL import Image
+from multiprocessing import Pool, freeze_support, RLock
 from concurrent.futures import ThreadPoolExecutor
 import time
 
@@ -21,12 +22,9 @@ import pandas as pd
 
 from pathlib import Path
 
-Q_RANGE = (16, 32)
-F_RANGE = (35, 350)
-SAMPLE_RATE = 2048
-
 
 def read_file(fname):
+    SAMPLE_RATE = 2048
     data_list = np.load(fname)
 
     return [TimeSeries(data, sample_rate=SAMPLE_RATE) for data in data_list]
@@ -60,6 +58,9 @@ def preprocess(d1, d2, d3, bandpass=False, lf=35, hf=350, crop=True):
 
 
 def create_image(fname):
+    Q_RANGE = (16, 32)
+    F_RANGE = (35, 350)
+    # print(fname)
     strain = read_file(fname)
 
     processed_strain = preprocess(*strain, crop=True, bandpass=True)
@@ -76,14 +77,54 @@ def create_image(fname):
 
     return Image.fromarray(img).rotate(90, expand=1).resize((768, 768))
 
+def preprocess_group(data, target_directory, isTest, pid):
 
-# class AsyncPreprocess(threading.Thread):
-#
-#     def __init__(self, data):
-#         self.data = data
-#
-#     def run(self):
+    tqdm_text = "#" + "{}".format(pid).zfill(3)
 
+    with tqdm(total=len(data), desc=tqdm_text, position=pid + 1) as pbar:
+        for i in tqdm(range(len(data))):
+            # print(data)
+            # time.sleep(0.05)
+            if isTest:
+                img = create_image(str(data[i]))
+            else:
+                img = create_image(data[i][0])
+
+            if isTest:
+                img.save("{}/{}.jpg".format(target_directory, data[i].name.split(".")[0]))
+            else:
+                img.save("{}/{}/{}.jpg".format(target_directory, data[i][1], data[i][2]))
+
+            pbar.update()
+
+def async_preprocess(ids, paths, targets, target_directory, num_threads):
+    if ids is None and targets is None:
+        isTest = True
+    else:
+        isTest = False
+
+    if isTest:
+        data = np.array(paths)
+    else:
+        data = np.array([paths, targets, ids]).transpose()
+
+    print(len(data))
+    leftover_length = len(data) % num_threads
+    print(leftover_length)
+    if leftover_length > 0:
+        split_data = np.split(data[:-leftover_length], num_threads)
+        split_data.append(data[-leftover_length:])
+    else:
+        split_data = np.split(data, num_threads)
+
+    threads = []
+
+    pool = Pool(processes=num_threads, initargs=(RLock(),), initializer=tqdm.set_lock)
+
+    convertJobs = [pool.apply_async(preprocess_group, args=(selected_data, target_directory, isTest, i,))
+                   for i, selected_data in enumerate(split_data)]
+    pool.close()
+    result_list = [job.get() for job in convertJobs]
 
 
 if __name__=="__main__":
@@ -125,21 +166,16 @@ if __name__=="__main__":
     # Save validation lists for easy access
     np.save("./data/validation_info.npy", np.array([id_val, target_val]).transpose())
 
+    num_threads = 4
 
-    def demo(factory, position, data):
-        with factory.create(position, len(data)) as progress:
-            for _ in range(0, len(data)):
-                progress.update(1)
-                img = create_image(data[index][0])
+    # Train Images
+    async_preprocess(ids=id_train, paths=path_train, targets=target_train, target_directory="./data/train")
 
-                img.save("./data/train/{}/{}.jpg".format(data[index][1], data[index][2]))
+    # Val Images
+    async_preprocess(ids=id_val, paths=path_val, targets=target_val, target_directory="./data/validation")
 
-    with ThreadPoolExecutor(max_workers=20) as executor:
-        tasks = range(20)
-        multi_thread_factory = TqdmMultiThreadFactory()
-        for i, url in enumerate(tasks, 1):
-            executor.submit(demo, multi_thread_factory,
-                            i, np.array([path_train, target_train, id_train]).transpose())
+    # Test Images
+    async_preprocess(ids=None, paths=test_paths, targets=None, num_threads=num_threads, target_directory="./data/test")
 
     # Train Images
     # for index in tqdm(range(len(id_train))):
@@ -148,10 +184,10 @@ if __name__=="__main__":
     #     img.save("./data/train/{}/{}.jpg".format(target_train[index], id_train[index]))
 
     # Validation Images
-    for index in tqdm(range(len(id_val))):
-        img = create_image(path_val[index])
+    #for index in tqdm(range(len(id_val))):
+    #    img = create_image(path_val[index])
 
-        img.save("./data/validation/{}/{}.jpg".format(target_val[index], id_val[index]))
+    #    img.save("./data/validation/{}/{}.jpg".format(target_val[index], id_val[index]))
 
     # for test_path in tqdm(test_paths):
     #     img = create_image(str(test_path))
