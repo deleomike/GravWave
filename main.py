@@ -41,7 +41,7 @@ class GravWaveDataset(Dataset):
 
         # print(img.shape)
 
-        return img, torch.tensor(self.data[index][1], dtype=torch.float16)
+        return img, torch.tensor(self.data[index][1], dtype=torch.int64)
 
 data_dir = "./data"
 
@@ -51,7 +51,7 @@ val_data = np.load("./data/validation_info.npy", allow_pickle=True)
 train_ds = GravWaveDataset(train_data, "./data/train")
 val_ds = GravWaveDataset(val_data, "./data/validation")
 
-train_dl = DataLoader(train_ds, shuffle=True, batch_size=bs, num_workers=-1)
+train_dl = DataLoader(train_ds, shuffle=True, batch_size=bs, num_workers=0)
 val_dl = DataLoader(val_ds, batch_size=bs)
 
 
@@ -81,7 +81,7 @@ class GravModel(LightningModule):
         return optimizer
 
     def forward(self, x):
-        return torch.sigmoid(self.model(x))
+        return self.model(x)
 
     def training_step(self, batch, batch_idx):
         x, y = batch
@@ -115,11 +115,11 @@ class GravModel(LightningModule):
         x, y = batch
 
         with torch.no_grad():
-            logits = self.forward(x)
+            logits = torch.sigmoid(self.forward(x))
 
-        score = self.metric(logits, y.type(dtype=torch.int64))
+        score = self.metric(logits, y)
 
-        print(score)
+        # print(score)
         self.log("val_score_step", score, on_step=True)
         return score
 
@@ -131,7 +131,7 @@ class GravModel(LightningModule):
 
     def compute_loss(self, x, y):
         logits = self.forward(x)
-        return F.mse_loss(logits, y)
+        return F.cross_entropy(logits, y)
 
 module = GravModel(useSAM=False)
 
