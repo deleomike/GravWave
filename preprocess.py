@@ -166,13 +166,13 @@ if __name__=="__main__":
     # Save validation lists for easy access
     np.save("./data/validation_info.npy", np.array([id_val, target_val]).transpose())
 
-    num_threads = 4
+    num_threads = 40
 
     # Train Images
-    async_preprocess(ids=id_train, paths=path_train, targets=target_train, target_directory="./data/train")
+    async_preprocess(ids=id_train, paths=path_train, targets=target_train, num_threads=num_threads, target_directory="./data/train")
 
     # Val Images
-    async_preprocess(ids=id_val, paths=path_val, targets=target_val, target_directory="./data/validation")
+    async_preprocess(ids=id_val, paths=path_val, targets=target_val, num_threads=num_threads, target_directory="./data/validation")
 
     # Test Images
     async_preprocess(ids=None, paths=test_paths, targets=None, num_threads=num_threads, target_directory="./data/test")

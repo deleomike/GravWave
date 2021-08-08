@@ -11,6 +11,8 @@ from torch.utils.data import DataLoader, Dataset
 from src.util.sam import SAM
 from pytorch_lightning import LightningModule, Trainer
 
+import torchmetrics
+
 bs = 24
 torch.backends.cudnn.benchmark=True
 
@@ -49,7 +51,7 @@ val_data = np.load("./data/validation_info.npy", allow_pickle=True)
 train_ds = GravWaveDataset(train_data, "./data/train")
 val_ds = GravWaveDataset(val_data, "./data/validation")
 
-train_dl = DataLoader(train_ds, shuffle=True, batch_size=bs, num_workers=40, pin_memory=True)
+train_dl = DataLoader(train_ds, shuffle=True, batch_size=bs, num_workers=-1)
 val_dl = DataLoader(val_ds, batch_size=bs)
 
 
@@ -57,8 +59,12 @@ class GravModel(LightningModule):
 
     def __init__(self, useSAM=True):
         super().__init__()
-        self.model = timm.create_model('tf_efficientnetv2_m_in21k', pretrained=True, num_classes=1)
 
+        self.num_classes = 2
+
+        self.model = timm.create_model('tf_efficientnetv2_m_in21k', pretrained=True, num_classes=self.num_classes)
+
+        self.metric = torchmetrics.Accuracy(num_classes=self.num_classes)
         self.useSAM = useSAM
 
         if self.useSAM:
@@ -109,8 +115,18 @@ class GravModel(LightningModule):
         x, y = batch
 
         with torch.no_grad():
-            loss = self.compute_loss(x, y)
+            logits = self.forward(x)
 
+        score = self.metric(logits, y.type(dtype=torch.int64))
+
+        print(score)
+        self.log("val_score_step", score, on_step=True)
+        return score
+
+    def validation_epoch_end(self, outs):
+        # outs is a list of whatever you returned in `validation_step`
+        loss = torch.stack(outs).mean()
+        self.log("val_score", loss, on_epoch=True, logger=True, prog_bar=True)
         return loss
 
     def compute_loss(self, x, y):
@@ -119,6 +135,7 @@ class GravModel(LightningModule):
 
 module = GravModel(useSAM=False)
 
-trainer = Trainer(gpus=1, precision=16, num_sanity_val_steps=1, limit_train_batches=0.1, profiler=pytorch_lightning.profiler.SimpleProfiler())
+trainer = Trainer(gpus=1, precision=16, num_sanity_val_steps=1, limit_train_batches=0.1, check_val_every_n_epoch=1,
+                  profiler=pytorch_lightning.profiler.SimpleProfiler())
 
-trainer.fit(module, train_dl)
+trainer.fit(module, train_dl, val_dl)
